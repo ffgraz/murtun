@@ -1,0 +1,77 @@
+#!/bin/sh /etc/rc.common
+
+START=22
+STOP=88
+
+EXTRA_COMMANDS="dryrun"
+EXTRA_HELP="	dryrun  just print commands which would be executed at start"
+
+source /lib/functions/network.sh
+network_get_ipaddr LOCAL_ADDR "ff"
+
+create_tunnel() {
+  local name="$1"
+  local ignore
+  local gateway
+  local nets4
+  local nets6
+
+  config_get_bool ignore "$name" ignore 0
+  [ "$ignore" -ne 0 ] && return 0
+
+  config_get gateway "$name" gateway
+  if [ -z "$gateway" ]; then
+    echo "Warning: ignoring tunnel '$name', invalid gateway."
+    return 0
+  fi
+  config_get nets4 "$name" net4
+  config_get nets6 "$name" net6
+
+  if [ -n "$nets4" ]; then
+    $IPCMD tun add murtun4$name mode ipip local $LOCAL_ADDR remote $gateway
+    $IPCMD addr add $LOCAL_ADDR/32 dev murtun4$name
+    $IPCMD link set up dev murtun4$name
+    for net in $nets4; do
+      $IPCMD route add $net dev murtun4$name table tunnel
+    done
+  fi
+
+  if [ -n "$nets6" ]; then
+    $IPCMD tun add murtun6$name mode sit local $LOCAL_ADDR remote $gateway
+    $IPCMD addr add $LOCAL_ADDR/32 dev murtun6$name
+    $IPCMD link set up dev murtun6$name
+    for net in $nets6; do
+      $IPCMD -6 route add $net dev murtun6$name table tunnel
+    done
+  fi
+
+  return 0
+}
+
+start() {
+  if [ -z "$LOCAL_ADDR" ]; then
+    echo "Error: there is no local interface called 'ff', exitting..."
+    exit 1
+  fi
+
+  IPCMD="ip"
+  config_load murtun
+  config_foreach create_tunnel tunnel
+}
+
+stop() {
+  for tun in `ip tunnel | grep "^murtun" | awk '{ print($1) }' | tr -d '.:'`; do
+    ip tun del $tun;
+  done
+}
+
+dryrun() {
+  if [ -z "$LOCAL_ADDR" ]; then
+    echo "Error: there is no local interface called 'ff', exitting..."
+    exit 1
+  fi
+
+  IPCMD="echo ip"
+  config_load murtun
+  config_foreach create_tunnel tunnel
+}
