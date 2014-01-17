@@ -47,14 +47,17 @@ config_foreach olsr_ifs_add Interface
 
 
 start() {
+  if [ -z "$MUR_IF" ]; then
+    echo "Error: there is no local interface called 'mur', exitting..."
+    exit 1
+  fi
+
   ip route add throw 89.106.208.0/22 table olsr
   ip route add throw 89.106.212.0/22 table olsr
 
-  ip rule add iif $MUR_IF lookup tunnel pref 7000
-  ip rule add lookup olsr pref 8000
-  ip rule add lookup main pref 9000
-
-  ip rule add iif $MUR_IF unreachable pref 10000
+  ip rule add lookup olsr pref 20000
+  ip rule add lookup main pref 21000
+  ip rule add iif $MUR_IF unreachable pref 22000
 
   ip rule del pref 32766
 
@@ -84,11 +87,9 @@ stop() {
 
   ip rule add lookup main pref 32766
 
-  ip rule del pref 10000
-
-  ip rule del pref  9000
-  ip rule del pref  8000
-  ip rule del pref  7000
+  ip rule del pref 22000
+  ip rule del pref 21000
+  ip rule del pref 20000
 
   ip route del throw 89.106.208.0/22 table olsr
   ip route del throw 89.106.212.0/22 table olsr

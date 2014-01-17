@@ -8,70 +8,153 @@ EXTRA_HELP="	dryrun  just print commands which would be executed at start"
 
 source /lib/functions/network.sh
 network_get_ipaddr LOCAL_ADDR "ff"
+network_get_device MUR_IF "mur"
+TABLENUM=1
+RULEPREF=10000
+STATE_D=/tmp/state
+
+invalid_vlan() {
+    [ "$1" -eq "$1" ] > /dev/null 2>&1
+    if [ "$?" -ne 0 ]; then  return 0; fi # not even a number
+
+    [ "$1" -lt 0 ] || [ "$1" -ge 4096 ] # out of range
+    return $?
+}
 
 create_tunnel() {
   local name="$1"
   local ignore
-  local gateway
-  local nets4
-  local nets6
+  local ffgw
+  local vlan
+  local mur4gw
+  local mur6gw
 
   config_get_bool ignore "$name" ignore 0
   [ "$ignore" -ne 0 ] && return 0
 
-  config_get gateway "$name" gateway
-  if [ -z "$gateway" ]; then
-    echo "Warning: ignoring tunnel '$name', invalid gateway."
+  config_get ffgw "$name" ff
+  if [ -z "$ffgw" ]; then
+    echo "Warning: ignoring tunnel '$name', invalid Funkfeuer gateway address."
     return 0
   fi
-  config_get nets4 "$name" net4
-  config_get nets6 "$name" net6
 
-  if [ -n "$nets4" ]; then
-    $IPCMD tun add murtun4$name mode ipip local $LOCAL_ADDR remote $gateway
+  config_get vlan "$name" vlan
+  if invalid_vlan "$vlan"; then
+    echo "Warning: ignoring tunnel '$name', invalid VLAN ID."
+    return 0
+  fi
+
+  config_get mur4gw "$name" mur4
+  config_get mur6gw "$name" mur6
+  if [ -z "$mur4gw" ] && [ -z "mur6gw" ]; then
+    echo "Warning: ignoring tunnel '$name', neither a gateway for IPv4 nor IPv6 given."
+    return 0
+  fi
+
+  $VCONFIGCMD add $MUR_IF $vlan
+  echo $MUR_IF.$vlan >> $STATE_D/murtun.vlans
+  $IPCMD link set up dev $MUR_IF.$vlan
+  $IPCMD rule add iif $MUR_IF.$vlan lookup $TABLENUM pref $RULEPREF
+
+  if [ -n "$mur4gw" ]; then
+    $IPCMD tun add murtun4$name mode ipip local $LOCAL_ADDR remote $ffgw
+    echo murtun4$name >> $STATE_D/murtun.tuns
     $IPCMD addr add $LOCAL_ADDR/32 dev murtun4$name
     $IPCMD link set up dev murtun4$name
-    for net in $nets4; do
-      $IPCMD route add $net dev murtun4$name table tunnel
-    done
+
+    $IPCMD route add default dev murtun4$name table $TABLENUM
+    $IPCMD rule add iif murtun4$name lookup $((TABLENUM+1)) pref $((RULEPREF+1))
+    $IPCMD route add default table $((TABLENUM+1)) nexthop via $mur4gw onlink dev $MUR_IF.$vlan
   fi
 
-  if [ -n "$nets6" ]; then
-    $IPCMD tun add murtun6$name mode sit local $LOCAL_ADDR remote $gateway
+  if [ -n "$mur6gw" ]; then
+    $IPCMD tun add murtun6$name mode sit local $LOCAL_ADDR remote $ffgw
+    echo murtun6$name >> $STATE_D/murtun.tuns
     $IPCMD addr add $LOCAL_ADDR/32 dev murtun6$name
     $IPCMD link set up dev murtun6$name
-    for net in $nets6; do
-      $IPCMD -6 route add $net dev murtun6$name table tunnel
-    done
+
+    $IPCMD -6 route add default dev murtun6$name table $TABLENUM
+    $IPCMD rule add iif murtun6$name lookup $((TABLENUM+1)) pref $((RULEPREF+2))
+    $IPCMD -6 route add default table $((TABLENUM+1)) nexthop via $mur6gw onlink dev $MUR_IF.$vlan
   fi
+
+  echo $RULEPREF >> $STATE_D/murtun.rules
+  echo $((RULEPREF+1)) >> $STATE_D/murtun.rules
+  echo $((RULEPREF+2)) >> $STATE_D/murtun.rules
+  echo $TABLENUM >> $STATE_D/murtun.tables
+  echo $((TABLENUM+1)) >> $STATE_D/murtun.tables
+
+  TABLENUM=$((TABLENUM+2))
+  RULEPREF=$((RULEPREF+3))
 
   return 0
 }
 
 start() {
+  if [ -z "$MUR_IF" ]; then
+    echo "Error: there is no local interface called 'mur', exitting..."
+    exit 1
+  fi
+
   if [ -z "$LOCAL_ADDR" ]; then
     echo "Error: there is no local interface called 'ff', exitting..."
     exit 1
   fi
 
+  rm -f $STATE_D/murtun.*
   IPCMD="ip"
+  VCONFIGCMD="vconfig"
+
   config_load murtun
   config_foreach create_tunnel tunnel
 }
 
 stop() {
-  for tun in `ip tunnel | grep "^murtun" | awk '{ print($1) }' | tr -d '.:'`; do
-    ip tun del $tun;
-  done
+  if [ -f $STATE_D/murtun.rules ]; then
+    while read pref; do
+     ip rule del pref $pref
+     done < $STATE_D/murtun.rules
+  fi
+
+  if [ -f $STATE_D/murtun.tables ]; then
+    while read table; do
+      ip route flush table $table
+      ip -6 route flush table $table
+    done < $STATE_D/murtun.tables
+  fi
+
+  if [ -f $STATE_D/murtun.tuns ]; then
+    while read dev; do
+      ip tun del $dev
+    done < $STATE_D/murtun.tuns
+  fi
+
+  if [ -f $STATE_D/murtun.vlans ]; then
+    while read dev; do
+      vconfig rem $dev
+    done < $STATE_D/murtun.vlans
+  fi
+
+  rm -f $STATE_D/murtun.*
 }
 
 dryrun() {
+  if [ -z "$MUR_IF" ]; then
+    echo "Error: there is no local interface called 'mur', exitting..."
+    exit 1
+  fi
+
   if [ -z "$LOCAL_ADDR" ]; then
     echo "Error: there is no local interface called 'ff', exitting..."
     exit 1
   fi
 
   IPCMD="echo ip"
+  VCONFIGCMD="echo vconfig"
+  STATE_D=/dev/shm
+
   config_load murtun
   config_foreach create_tunnel tunnel
+
+  rm -f $STATE_D/murtun.*
 }
