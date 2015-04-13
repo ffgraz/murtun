@@ -23,24 +23,44 @@ PKG_NAME:=murtun
 PKG_RELEASE:=1
 
 PKG_BUILD_DIR := $(BUILD_DIR)/$(PKG_NAME)
-
+PKG_MAINTAINER:=Christian Pointner <equinox@spreadspace.org>
+PKG_LICENSE:=GPL-3.0+
 include $(INCLUDE_DIR)/package.mk
 
-define Package/murtun
+
+define Package/murtun/template
   SECTION:=net
   CATEGORY:=Network
   TITLE:=mur.at Tunnel Setup scripts for Funkfeuer Graz
   DEPENDS:=+kmod-ipv6 +kmod-sit +kmod-iptunnel4 +kmod-ipip +ip +olsrd
-  MAINTAINER:= Christian Pointner <equinox@ffgraz.net>
+endef
+
+
+define Package/murtun
+  $(call Package/murtun/template)
+  TITLE+= (server)
 endef
 
 define Package/murtun/description
-	mur.at Tunnel Setup scripts for Funkfeuer Graz
+	mur.at Tunnel Setup scripts for Funkfeuer Graz - Server Package
 endef
 
 define Package/murtun/conffiles
 	/etc/config/murtun
 endef
+
+
+define Package/murtun-client
+  $(call Package/murtun/template)
+  TITLE+= (client)
+endef
+
+define Package/murtun-client/description
+	mur.at Tunnel Setup scripts for Funkfeuer Graz - Client Package
+endef
+
+Package/murtun-client/conffiles=$(Package/murtun/conffiles)
+
 
 define Build/Prepare
 endef
@@ -59,4 +79,12 @@ define Package/murtun/install
 	$(INSTALL_BIN) ./files/murtun $(1)/etc/init.d/murtun
 endef
 
+define Package/murtun-client/install
+	$(INSTALL_DIR) $(1)/etc/config
+	$(INSTALL_DATA) ./files/murtun-client.config $(1)/etc/config/murtun
+	$(INSTALL_DIR) $(1)/etc/init.d
+	$(INSTALL_BIN) ./files/murtun-client $(1)/etc/init.d/murtun-client
+endef
+
 $(eval $(call BuildPackage,murtun))
+$(eval $(call BuildPackage,murtun-client))

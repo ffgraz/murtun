@@ -1,0 +1,74 @@
+#!/bin/sh /etc/rc.common
+
+START=21
+STOP=89
+
+
+validate_varname() {
+  local varname="$1"
+  [ -z "$varname" -o "$varname" != "${varname%%[!A-Za-z0-9_]*}" ] && return 1
+  return 0
+}
+
+olsr_ifs_add() {
+  local cfg="$1"
+  validate_varname "$cfg" || return 0
+  local ignore
+  local interfaces
+  local interface
+  local ifnames
+
+  config_get_bool ignore "$cfg" ignore 0
+  [ "$ignore" -ne 0 ] && return 0
+
+  ifnames=
+  config_get interfaces "$cfg" interface
+
+  for interface in $interfaces; do
+    if validate_varname "$interface"; then
+      if network_get_device IFNAME "$interface"; then
+        OLSR_IFS="$OLSR_IFS $IFNAME"
+      else
+        echo "Warning: OLSR Interface '$interface' not found, skipped"
+      fi
+    fi
+  done
+
+  return 0
+}
+
+OLSR_IFS=""
+config_load olsrd
+config_foreach olsr_ifs_add Interface
+
+
+start() {
+  ip route add throw 89.106.208.0/22 table olsr
+  ip route add throw 89.106.212.0/22 table olsr
+
+  ip rule add lookup olsr pref 8000
+  ip rule add lookup main pref 9000
+  ip rule del pref 32766
+
+  i=30000
+  for iface in $OLSR_IFS; do
+    ip rule add iif $iface lookup olsr-default pref $i
+    i=$((i+1))
+  done
+}
+
+stop() {
+  i=30000
+  for iface in $OLSR_IFS; do
+    ip rule del pref $i
+    i=$((i+1))
+  done
+
+  ip rule add lookup main pref 32766
+
+  ip rule del pref  9000
+  ip rule del pref  8000
+
+  ip route del throw 89.106.208.0/22 table olsr
+  ip route del throw 89.106.212.0/22 table olsr
+}
