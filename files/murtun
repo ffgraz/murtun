@@ -28,8 +28,7 @@ create_tunnel() {
   config_get nets6 "$name" net6
 
   if [ -n "$nets4" ]; then
-    $IPCMD tun add murtun4$name mode ipip local $LOCAL_ADDR remote $gateway
-    $IPCMD addr add $LOCAL_ADDR/32 dev murtun4$name
+    $IPCMD tun add murtun4$name mode ipip local $LOCAL_ADDR remote $gateway ttl inherit
     $IPCMD link set up dev murtun4$name
     for net in $nets4; do
       $IPCMD route add $net dev murtun4$name table tunnel
@@ -37,8 +36,7 @@ create_tunnel() {
   fi
 
   if [ -n "$nets6" ]; then
-    $IPCMD tun add murtun6$name mode sit local $LOCAL_ADDR remote $gateway
-    $IPCMD addr add $LOCAL_ADDR/32 dev murtun6$name
+    $IPCMD tun add murtun6$name mode sit local $LOCAL_ADDR remote $gateway ttl inherit
     $IPCMD link set up dev murtun6$name
     for net in $nets6; do
       $IPCMD -6 route add $net dev murtun6$name table tunnel

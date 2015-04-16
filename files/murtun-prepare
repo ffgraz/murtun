@@ -39,6 +39,7 @@ source /lib/functions/network.sh
 
 network_get_device MUR_IF "mur"
 network_get_gateway DEFAULT_GW "mur"
+network_get_gateway6 DEFAULT_GW6 "mur"
 OLSR_IFS=""
 config_load olsrd
 config_foreach olsr_ifs_add Interface
@@ -49,12 +50,18 @@ start() {
   ip route add throw 89.106.212.0/22 table olsr
 
   ip rule add iif $MUR_IF lookup tunnel pref 7000
+  ip -6 rule add iif $MUR_IF lookup tunnel pref 7000
+
   ip rule add lookup olsr pref 8000
+
   ip rule add lookup main pref 9000
+  ip -6 rule add lookup main pref 9000
 
   ip rule add iif $MUR_IF unreachable pref 10000
+  ip -6 rule add iif $MUR_IF unreachable pref 10000
 
   ip rule del pref 32766
+  ip -6 rule del pref 32766
 
   i=30000
   for iface in $OLSR_IFS; do
@@ -66,9 +73,21 @@ start() {
     ip route del default
     ip route add default via $DEFAULT_GW table default
   fi
+
+  ip -6 rule add lookup default pref 32767
+  if [ -n "$DEFAULT_GW6" ]; then
+    ip -6 route del default
+    ip -6 route add default via $DEFAULT_GW6 table default
+  fi
 }
 
 stop() {
+  if [ -n "$DEFAULT_GW6" ]; then
+    ip -6 route del default table default
+    ip -6 route add default via $DEFAULT_GW
+  fi
+  ip -6 rule add lookup default pref 32767
+
   if [ -n "$DEFAULT_GW" ]; then
     ip route del default table default
     ip route add default via $DEFAULT_GW
@@ -80,12 +99,18 @@ stop() {
     i=$((i+1))
   done
 
+  ip -6 rule add lookup main pref 32766
   ip rule add lookup main pref 32766
 
+  ip -6 rule del pref 10000
   ip rule del pref 10000
 
+  ip -6 rule del pref  9000
   ip rule del pref  9000
+
   ip rule del pref  8000
+
+  ip -6 rule del pref  7000
   ip rule del pref  7000
 
   ip route del throw 89.106.208.0/22 table olsr
