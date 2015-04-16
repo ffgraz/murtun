@@ -16,12 +16,10 @@ olsr_ifs_add() {
   local ignore
   local interfaces
   local interface
-  local ifnames
 
   config_get_bool ignore "$cfg" ignore 0
   [ "$ignore" -ne 0 ] && return 0
 
-  ifnames=
   config_get interfaces "$cfg" interface
 
   for interface in $interfaces; do

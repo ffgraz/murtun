@@ -81,7 +81,7 @@ endef
 
 define Package/murtun-client/install
 	$(INSTALL_DIR) $(1)/etc/config
-	$(INSTALL_DATA) ./files/murtun-client.config $(1)/etc/config/murtun
+	$(INSTALL_DATA) ./files/murtun-client.config $(1)/etc/config/murtun-client
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/murtun-client $(1)/etc/init.d/murtun-client
 endef

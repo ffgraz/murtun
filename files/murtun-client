@@ -3,6 +3,9 @@
 START=21
 STOP=89
 
+STATE_FILE='/var/run/murtun-client.enabled'
+
+source /lib/functions/network.sh
 
 validate_varname() {
   local varname="$1"
@@ -16,12 +19,10 @@ olsr_ifs_add() {
   local ignore
   local interfaces
   local interface
-  local ifnames
 
   config_get_bool ignore "$cfg" ignore 0
   [ "$ignore" -ne 0 ] && return 0
 
-  ifnames=
   config_get interfaces "$cfg" interface
 
   for interface in $interfaces; do
@@ -37,38 +38,107 @@ olsr_ifs_add() {
   return 0
 }
 
-OLSR_IFS=""
-config_load olsrd
-config_foreach olsr_ifs_add Interface
 
-
-start() {
+setup_policy_routing() {
   ip route add throw 89.106.208.0/22 table olsr
   ip route add throw 89.106.212.0/22 table olsr
 
   ip rule add lookup olsr pref 8000
   ip rule add lookup main pref 9000
   ip rule del pref 32766
+}
+
+setup_tunnel() {
+  case $1 in
+    ipip)
+      ip tun add murtun4 mode $1 local $2 remote $3 ttl inherit
+      [ -n "$4" ] && ip addr add $4 dev murtun4
+      ip link set up dev murtun4
+      ;;
+    sit)
+      ip tun add murtun6 mode $1 local $2 remote $3 ttl inherit
+      ip link set up dev murtun6
+      ;;
+  esac
+}
+
+setup_default_routes() {
+  local iface
+  local i
 
   i=30000
   for iface in $OLSR_IFS; do
     ip rule add iif $iface lookup olsr-default pref $i
     i=$((i+1))
   done
+
+  ip route add default dev murtun4 table default
+  [ $2 -ne 0 ] && ip -6 route add default dev murtun6
 }
 
-stop() {
-  i=30000
-  for iface in $OLSR_IFS; do
-    ip rule del pref $i
-    i=$((i+1))
-  done
 
+shutdown_policy_routing() {
   ip rule add lookup main pref 32766
-
   ip rule del pref  9000
   ip rule del pref  8000
 
   ip route del throw 89.106.208.0/22 table olsr
   ip route del throw 89.106.212.0/22 table olsr
+}
+
+shutdown_tunnel() {
+  for tun in `ip tunnel | grep "^murtun" | awk '{ print($1) }' | tr -d '.:'`; do
+    ip tun del $tun;
+  done
+}
+
+shutdown_default_routes() {
+  local iface
+  local i
+
+  i=30000
+  for iface in $OLSR_IFS; do
+    ip rule del pref $i
+    i=$((i+1))
+  done
+}
+
+
+start() {
+  local remote_addr
+  local local_if
+  local local_addr
+  local if_addr
+  local use_ipv6
+
+  uci get murtun-client.active -q > /dev/null
+  [ "$?" -ne 0 ] && return 0
+
+  config_load murtun-client
+  config_get remote_addr active gateway
+  config_get local_if active interface
+  network_get_ipaddr local_addr $local_if
+  config_get if_addr active ipaddr
+  config_get_bool use_ipv6 active ipv6 0
+
+  OLSR_IFS=""
+  config_load olsrd
+  config_foreach olsr_ifs_add Interface
+
+  setup_policy_routing
+  setup_tunnel ipip $local_addr $remote_addr $if_addr
+  [ $use_ipv6 -ne 0 ] && setup_tunnel sit $local_addr $remote_addr
+  setup_default_routes "$if_addr" $use_ipv6
+
+  echo "$OLSR_IFS" > "$STATE_FILE"
+}
+
+stop() {
+  if [ -f "$STATE_FILE" ]; then
+    OLSR_IFS=`cat "$STATE_FILE"`
+    shutdown_default_routes
+    shutdown_tunnel
+    shutdown_policy_routing
+    rm -f "$STATE_FILE"
+  fi
 }
