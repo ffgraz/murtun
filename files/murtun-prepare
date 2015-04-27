@@ -45,10 +45,8 @@ config_load olsrd
 config_foreach olsr_ifs_add Interface
 
 
-start() {
-  ip route add throw 89.106.208.0/22 table olsr
-  ip route add throw 89.106.212.0/22 table olsr
 
+start_policy_routing() {
   ip rule add iif $MUR_IF lookup tunnel pref 7000
   ip -6 rule add iif $MUR_IF lookup tunnel pref 7000
 
@@ -68,6 +66,13 @@ start() {
     ip rule add iif $iface lookup olsr-default pref $i
     i=$((i+1))
   done
+}
+
+start_routing() {
+  ip route add throw 89.106.208.0/22 table olsr
+  ip route add throw 89.106.212.0/22 table olsr
+
+  start_policy_routing
 
   if [ -n "$DEFAULT_GW" ]; then
     ip route del default
@@ -81,18 +86,11 @@ start() {
   fi
 }
 
-stop() {
-  if [ -n "$DEFAULT_GW6" ]; then
-    ip -6 route del default table default
-    ip -6 route add default via $DEFAULT_GW
-  fi
-  ip -6 rule add lookup default pref 32767
+start_firewall() {
+  echo "no firewall yet..."
+}
 
-  if [ -n "$DEFAULT_GW" ]; then
-    ip route del default table default
-    ip route add default via $DEFAULT_GW
-  fi
-
+stop_policy_routing() {
   i=30000
   for iface in $OLSR_IFS; do
     ip rule del pref $i
@@ -112,7 +110,38 @@ stop() {
 
   ip -6 rule del pref  7000
   ip rule del pref  7000
+}
+
+stop_routing() {
+  if [ -n "$DEFAULT_GW6" ]; then
+    ip -6 route del default table default
+    ip -6 route add default via $DEFAULT_GW6
+  fi
+  ip -6 rule del lookup default pref 32767
+
+  if [ -n "$DEFAULT_GW" ]; then
+    ip route del default table default
+    ip route add default via $DEFAULT_GW
+  fi
+
+  stop_policy_routing
 
   ip route del throw 89.106.208.0/22 table olsr
   ip route del throw 89.106.212.0/22 table olsr
+}
+
+stop_firewall() {
+  echo "no firewall yet..."
+}
+
+
+
+start() {
+  start_routing
+  start_firewall
+}
+
+stop() {
+  stop_firewall
+  stop_routing
 }
