@@ -37,6 +37,7 @@ olsr_ifs_add() {
 
 source /lib/functions/network.sh
 
+network_get_device ADMIN_IF "admin" ""
 network_get_device MUR_IF "mur"
 network_get_gateway DEFAULT_GW "mur"
 network_get_gateway6 DEFAULT_GW6 "mur"
@@ -87,8 +88,31 @@ start_routing() {
 }
 
 start_firewall() {
-  echo "no firewall yet..."
+  iptables -A INPUT -i lo -j ACCEPT
+  ip6tables -A INPUT -i lo -j ACCEPT
+  iptables -A INPUT -p icmp -j ACCEPT
+  ip6tables -A INPUT -p icmpv6 -j ACCEPT
+  iptables -A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+  ip6tables -A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+  for iface in $OLSR_IFS; do
+    iptables -A INPUT -i $iface -p udp --dport 698 -j ACCEPT
+    iptables -A INPUT -i $iface -p 4 -j ACCEPT   ## IP  - IP
+    iptables -A INPUT -i $iface -p 41 -j ACCEPT  ## IP6 - IP
+  done
+
+  if [ -n "$ADMIN_IF" ]; then
+    iptables -A INPUT -i $ADMIN_IF -j ACCEPT
+    ip6tables -A INPUT -i $ADMIN_IF -j ACCEPT
+  else
+    iptables -A INPUT -i $MUR_IF -p tcp --dport 22 -j ACCEPT
+    ip6tables -A INPUT -i $MUR_IF -p tcp --dport 22 -j ACCEPT
+  fi
+
+  iptables -P INPUT DROP
+  ip6tables -P INPUT DROP
 }
+
 
 stop_policy_routing() {
   i=30000
@@ -131,7 +155,10 @@ stop_routing() {
 }
 
 stop_firewall() {
-  echo "no firewall yet..."
+  iptables -F INPUT
+  ip6tables -F INPUT
+  iptables -P INPUT ACCEPT
+  ip6tables -P INPUT ACCEPT
 }
 
 
