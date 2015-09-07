@@ -76,6 +76,23 @@ setup_default_routes() {
   [ $2 -ne 0 ] && ip -6 route add default dev murtun6
 }
 
+setup_nat() {
+  local local_if
+  local local_if_net
+  local out_if
+
+  iptables -t nat -N MURTUN_NAT
+  iptables -t nat -A POSTROUTING -j MURTUN_NAT
+  for local_if in $2; do
+    local_if_net=""
+    network_get_subnet local_if_net $local_if
+    if [ -n "$local_if_net" ]; then
+      for out_if in murtun4 $OLSR_IFS; do
+        iptables -t nat -A MURTUN_NAT -o $out_if -s $local_if_net -j SNAT --to $1
+      done
+    fi
+  done
+}
 
 shutdown_policy_routing() {
   ip rule add lookup main pref 32766
@@ -103,12 +120,18 @@ shutdown_default_routes() {
   done
 }
 
+shutdown_nat() {
+  iptables -t nat -D POSTROUTING -j MURTUN_NAT
+  iptables -t nat -F MURTUN_NAT
+  iptables -t nat -X MURTUN_NAT
+}
 
 start() {
   local remote_addr
   local local_if
   local local_addr
   local if_addr
+  local nat_ifs
   local use_ipv6
 
   uci get murtun-client.active -q > /dev/null
@@ -119,6 +142,7 @@ start() {
   config_get local_if active interface
   network_get_ipaddr local_addr $local_if
   config_get if_addr active ipaddr
+  config_get nat_ifs active nat4interface
   config_get_bool use_ipv6 active ipv6 0
 
   OLSR_IFS=""
@@ -129,6 +153,7 @@ start() {
   setup_tunnel ipip $local_addr $remote_addr $if_addr
   [ $use_ipv6 -ne 0 ] && setup_tunnel sit $local_addr $remote_addr
   setup_default_routes "$if_addr" $use_ipv6
+  [ -n "$if_addr" ] && [ -n "$nat_ifs" ] && setup_nat $if_addr "$nat_ifs"
 
   echo "$OLSR_IFS" > "$STATE_FILE"
 }
@@ -136,6 +161,7 @@ start() {
 stop() {
   if [ -f "$STATE_FILE" ]; then
     OLSR_IFS=`cat "$STATE_FILE"`
+    shutdown_nat
     shutdown_default_routes
     shutdown_tunnel
     shutdown_policy_routing
