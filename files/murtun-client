@@ -54,6 +54,7 @@ setup_tunnel() {
       ip tun add murtun4 mode $1 local $2 remote $3 ttl inherit
       [ -n "$4" ] && ip addr add $4 dev murtun4
       ip link set up dev murtun4
+      iptables -A FORWARD -o murtun4 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS  --clamp-mss-to-pmtu
       ;;
     sit)
       ip tun add murtun6 mode $1 local $2 remote $3 ttl inherit
@@ -104,6 +105,7 @@ shutdown_policy_routing() {
 }
 
 shutdown_tunnel() {
+  iptables -D FORWARD -o murtun4 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS  --clamp-mss-to-pmtu
   for tun in `ip tunnel | grep "^murtun" | awk '{ print($1) }' | tr -d '.:'`; do
     ip tun del $tun;
   done
@@ -121,9 +123,9 @@ shutdown_default_routes() {
 }
 
 shutdown_nat() {
-  iptables -t nat -D POSTROUTING -j MURTUN_NAT
-  iptables -t nat -F MURTUN_NAT
-  iptables -t nat -X MURTUN_NAT
+  iptables -t nat -D POSTROUTING -j MURTUN_NAT > /dev/null 2>&1
+  iptables -t nat -F MURTUN_NAT > /dev/null 2>&1
+  iptables -t nat -X MURTUN_NAT > /dev/null 2>&1
 }
 
 start() {
