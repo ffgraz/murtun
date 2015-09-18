@@ -32,7 +32,7 @@ define Package/murtun/template
   SECTION:=net
   CATEGORY:=Network
   TITLE:=mur.at Tunnel Setup scripts for Funkfeuer Graz
-  DEPENDS:=+kmod-ipv6 +kmod-sit +kmod-iptunnel4 +kmod-ipip +ip +olsrd
+  DEPENDS:=@IPV6 +kmod-sit +kmod-iptunnel4 +kmod-ipip +ip +olsrd
 endef
 
 
